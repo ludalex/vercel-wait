@@ -29,7 +29,7 @@ deployment by commit SHA and waits for it to reach a ready state.
 
 ```yaml
 - name: Wait for Vercel Deployment
-  uses: ludalex/vercel-wait@v1.0.1
+  uses: ludalex/vercel-wait@v1.0.3
   with:
     token: ${{ secrets.VERCEL_TOKEN }}
     project-id: ${{ vars.VERCEL_PROJECT_ID }}

@@ -9,7 +9,6 @@ const config = {
     esModule: true,
     file: 'dist/index.js',
     format: 'es',
-    sourcemap: true,
   },
   plugins: [commonjs(), nodeResolve({ preferBuiltins: true })],
 };

@@ -29,7 +29,7 @@ deployment by commit SHA and waits for it to reach a ready state.
 
 ```yaml
 - name: Wait for Vercel Deployment
-  uses: ./.github/actions/vercel-wait
+  uses: ludalex/vercel-wait@v1.0.1
   with:
     token: ${{ secrets.VERCEL_TOKEN }}
     project-id: ${{ vars.VERCEL_PROJECT_ID }}
@@ -46,10 +46,3 @@ deployment by commit SHA and waits for it to reach a ready state.
    (READY or CANCELED if `canceled-as-ready` is true)
 3. If the deployment is not found or does not reach a ready state within the
    timeout period, the action fails
-
-## To compile the action
-
-```bash
-npm install
-npx @vercel/ncc build index.js
-```

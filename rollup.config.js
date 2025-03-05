@@ -1,7 +1,7 @@
 // See: https://rollupjs.org/introduction/
 
-import commonjs from '@rollup/plugin-commonjs'
-import { nodeResolve } from '@rollup/plugin-node-resolve'
+import commonjs from '@rollup/plugin-commonjs';
+import { nodeResolve } from '@rollup/plugin-node-resolve';
 
 const config = {
   input: 'src/index.js',
@@ -9,9 +9,9 @@ const config = {
     esModule: true,
     file: 'dist/index.js',
     format: 'es',
-    sourcemap: true
+    sourcemap: true,
   },
-  plugins: [commonjs(), nodeResolve({ preferBuiltins: true })]
-}
+  plugins: [commonjs(), nodeResolve({ preferBuiltins: true })],
+};
 
-export default config
+export default config;

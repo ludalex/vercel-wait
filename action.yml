@@ -1,24 +1,62 @@
-name: The name of your action here
-description: Provide a description here
-author: Your name or organization here
+name: vercel-wait
+description: Wait for a Vercel deployment to finish
+author: ludalex
 
-# Add your action's branding here. This will appear on the GitHub Marketplace.
-branding:
-  icon: heart
-  color: red
-
-# Define your inputs here.
 inputs:
-  milliseconds:
-    description: Your input description here
+  token:
+    description:
+      'Vercel token can be obtained from https://vercel.com/account/tokens'
     required: true
-    default: '1000'
+  projectid:
+    description:
+      'Vercel project id can be obtained from
+      `https://vercel.com/<team>/<project>/settings`'
+    required: true
+  team-id:
+    description:
+      'Vercel team id can be obtained from
+      `https://vercel.com/teams/<team>/settings`'
+    required: true
+  timeout:
+    description: 'Timeout in seconds'
+    required: false
+    default: '600'
+  delay:
+    description: 'Delay in seconds between API requests to Vercel'
+    required: false
+    default: '10'
+  initial-delay:
+    description: 'Delay in seconds before starting the request loop'
+    required: false
+    default: '10'
+  sha:
+    description: 'The commit sha to wait for'
+    required: true
+  canceled-as-ready:
+    description:
+      "Treat 'CANCELED' deployments as ready. Useful i.e. when build gets
+      skipped due to no changes detected."
+    required: false
+    default: 'true'
 
-# Define your outputs here.
 outputs:
-  time:
-    description: Your output description here
+  deployment-id:
+    description: 'The deployment id'
+    value: ${{ steps.vercel-wait.outputs.id }}
+  deployment-url:
+    description: 'The deployment url'
+    value: ${{ steps.vercel-wait.outputs.url }}
+  deployment-state:
+    description: 'The deployment state'
+    value: ${{ steps.vercel-wait.outputs.state }}
+  deployment-alias-error:
+    description: 'The deployment alias error'
+    value: ${{ steps.vercel-wait.outputs.alias_error }}
 
 runs:
-  using: node20
+  using: 'node20'
   main: dist/index.js
+
+branding:
+  icon: clock
+  color: white

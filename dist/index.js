@@ -27247,41 +27247,182 @@ function requireCore () {
 var coreExports = requireCore();
 
 /**
- * Waits for a number of milliseconds.
- *
- * @param {number} milliseconds The number of milliseconds to wait.
- * @returns {Promise<string>} Resolves with 'done!' after the wait is over.
- */
-async function wait(milliseconds) {
-  return new Promise((resolve) => {
-    if (isNaN(milliseconds)) throw new Error('milliseconds is not a number')
-
-    setTimeout(() => resolve('done!'), milliseconds);
-  })
-}
-
-/**
  * The main function for the action.
  *
  * @returns {Promise<void>} Resolves when the action is complete.
  */
 async function run() {
   try {
-    const ms = coreExports.getInput('milliseconds');
+    // Get inputs
+    const token = coreExports.getInput('token', { required: true });
+    const projectId = coreExports.getInput('project-id', { required: true });
+    const teamId = coreExports.getInput('team-id', { required: true });
+    const timeout = parseInt(coreExports.getInput('timeout') || '600', 10);
+    const delay = parseInt(coreExports.getInput('delay') || '10', 10);
+    const initialDelay = parseInt(coreExports.getInput('initial-delay') || '5', 10);
+    const sha = coreExports.getInput('sha', { required: true });
+    const canceledAsReady =
+      (coreExports.getInput('canceled-as-ready') || 'true').toLowerCase() === 'true';
 
-    // Debug logs are only output if the `ACTIONS_STEP_DEBUG` secret is true
-    coreExports.debug(`Waiting ${ms} milliseconds ...`);
+    // Set up fetch headers
+    const headers = {
+      Authorization: `Bearer ${token}`,
+    };
 
-    // Log the current timestamp, wait, then log the new timestamp
-    coreExports.debug(new Date().toTimeString());
-    await wait(parseInt(ms, 10));
-    coreExports.debug(new Date().toTimeString());
+    // Wait for initial delay
+    coreExports.debug(`Waiting for initial delay of ${initialDelay} seconds...`);
+    await new Promise((resolve) => setTimeout(resolve, initialDelay * 1000));
 
-    // Set outputs for other workflow steps to use
-    coreExports.setOutput('time', new Date().toTimeString());
+    const startTime = Date.now();
+    const timeoutMs = timeout * 1000;
+
+    // Phase 1: Find the deployment ID by commit SHA
+    coreExports.info(`Looking for deployment with commit SHA: ${sha}`);
+    let deploymentId = null;
+    let initialRequestUrl = `https://api.vercel.com/v6/deployments?projectId=${projectId}&teamId=${teamId}&limit=100`;
+    let requestUrl = initialRequestUrl;
+
+    while (!deploymentId && Date.now() - startTime < timeoutMs) {
+      try {
+        coreExports.debug(`Requesting deployments from: ${requestUrl}`);
+        const response = await fetch(requestUrl, { headers });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Check for errors
+        if (data.error) {
+          if (data.error.code === 'forbidden') {
+            const errorMessage = data.error.message;
+            const invalidToken = data.error.invalidToken;
+            let combinedMessage = errorMessage;
+
+            if (invalidToken) {
+              combinedMessage += ' (Invalid token detected.)';
+            }
+
+            coreExports.setFailed(combinedMessage);
+            return;
+          }
+        }
+
+        // Find deployment with matching SHA
+        const deployment = data.deployments.find(
+          (d) => d.meta && d.meta.githubCommitSha === sha,
+        );
+
+        if (deployment) {
+          deploymentId = deployment.uid;
+          coreExports.info(`Deployment found: ${deploymentId}`);
+
+          // Check if deployment is already in ERROR state
+          if (deployment.state === 'ERROR' || deployment.status === 'ERROR') {
+            coreExports.setFailed(
+              `Deployment ${deploymentId} is in ERROR state. Failing immediately.`,
+            );
+            return;
+          }
+
+          break;
+        }
+
+        // Handle pagination
+        const next = data.pagination?.next;
+        if (next) {
+          if (requestUrl.includes('&until=')) {
+            // Replace existing until parameter
+            requestUrl = requestUrl.replace(/until=[0-9]*/, `until=${next}`);
+          } else {
+            // Add until parameter
+            requestUrl = `${requestUrl}&until=${next}`;
+          }
+        } else {
+          requestUrl = initialRequestUrl;
+        }
+
+        // Wait before next request
+        await new Promise((resolve) => setTimeout(resolve, delay * 1000));
+      } catch (error) {
+        coreExports.warning(`Failed to get deployments: ${error.message}`);
+        await new Promise((resolve) => setTimeout(resolve, delay * 1000));
+      }
+    }
+
+    if (!deploymentId) {
+      coreExports.setFailed(
+        `Deployment with commit SHA ${sha} was not found within the timeout period of ${timeout} seconds.`,
+      );
+      return;
+    }
+
+    // Phase 2: Monitor the deployment state
+    coreExports.info(`Monitoring deployment state for: ${deploymentId}`);
+    let deploymentReady = false;
+    let deploymentState = '';
+    let deploymentUrl = '';
+    let aliasError = '';
+
+    const deploymentApiUrl = `https://api.vercel.com/v13/deployments/${deploymentId}`;
+
+    while (!deploymentReady && Date.now() - startTime < timeoutMs) {
+      try {
+        coreExports.debug(`Checking deployment state from: ${deploymentApiUrl}`);
+        const response = await fetch(deploymentApiUrl, { headers });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        deploymentState = data.status;
+        coreExports.debug(`Deployment state: ${deploymentState}`);
+
+        // Immediately fail if deployment is in ERROR state
+        if (deploymentState === 'ERROR') {
+          coreExports.setFailed(`Deployment ${deploymentId} is in ERROR state.`);
+          return;
+        }
+
+        if (
+          deploymentState === 'READY' ||
+          (canceledAsReady && deploymentState === 'CANCELED')
+        ) {
+          deploymentReady = true;
+          deploymentUrl = data.url;
+          aliasError = data.aliasError || '';
+
+          coreExports.debug(`Deployment is ready with state: ${deploymentState}`);
+          break;
+        }
+
+        // Wait before next request
+        await new Promise((resolve) => setTimeout(resolve, delay * 1000));
+      } catch (error) {
+        coreExports.warning(`Failed to get deployment status: ${error.message}`);
+        await new Promise((resolve) => setTimeout(resolve, delay * 1000));
+      }
+    }
+
+    if (!deploymentReady) {
+      coreExports.setFailed(
+        `Deployment did not reach a ready state within the specified timeout of: ${timeout} seconds`,
+      );
+      return;
+    }
+
+    // Set outputs
+    coreExports.setOutput('id', deploymentId);
+    coreExports.setOutput('url', deploymentUrl);
+    coreExports.setOutput('state', deploymentState);
+    coreExports.setOutput('alias_error', aliasError);
+
+    coreExports.info(`Deployment is ready: ${deploymentUrl}`);
   } catch (error) {
-    // Fail the workflow run if an error occurs
-    if (error instanceof Error) coreExports.setFailed(error.message);
+    coreExports.setFailed(`Action failed with error: ${error.message}`);
   }
 }
 
